@@ -71,7 +71,7 @@ class SolverDeform(deform):
         return res[id]
 
     def registration_batch(self, psi, g, flow=None, pars = [0.5, 3, 20, 16, 5, 1.1, 0]):
-        if (flow==None):
+        if (flow is None):
             flow=np.zeros([self.ntheta,self.nz,self.n,2],dtype='float32')
         res = np.zeros([*psi.shape, 2], dtype='float32')
         with cf.ThreadPoolExecutor(16) as e:
@@ -119,7 +119,7 @@ class SolverDeform(deform):
             # update step
             psi = psi + gamma*d
             # check convergence
-            if (np.mod(i, 1) == 0):
+            if (np.mod(i, 1) == -1):
                 print("%4d, %.3e, %.7e" %
                       (i, gamma, minf(psi,Tpsi+gamma*Td)))
         return psi
