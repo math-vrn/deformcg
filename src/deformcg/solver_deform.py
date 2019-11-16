@@ -6,6 +6,9 @@ from scipy import ndimage
 from itertools import repeat
 from functools import partial
 from deformcg.deform import deform
+from skimage.feature import register_translation
+
+
 
 
 class SolverDeform(deform):
@@ -51,7 +54,7 @@ class SolverDeform(deform):
 
     def apply_flow_batch(self, psi, flow):
         res = np.zeros(psi.shape, dtype='complex64')
-        with cf.ThreadPoolExecutor(1) as e:
+        with cf.ThreadPoolExecutor() as e:
             shift = 0
             for res0 in e.map(partial(self.apply_flow, res, psi, flow), range(0, psi.shape[0])):                
                 res[shift] = res0
@@ -70,25 +73,51 @@ class SolverDeform(deform):
             tmp1, tmp2, flow[id], *pars)
         return res[id]
 
+    def registration_shift(self, res, psi, g, id):
+        # use real part for optical flow? - >>todo
+        
+        tmp1 = psi[id].real
+        tmp2 = g[id].real        
+        res[id] = register_translation(tmp1, tmp2, upsample_factor=100, space='real', return_error=False)        
+        return res[id]
+
+    def registration_shift_batch(self, psi, g):        
+        res = np.zeros([psi.shape[0], 2], dtype='float32')
+        with cf.ThreadPoolExecutor() as e:
+            shift = 0
+            for res0 in e.map(partial(self.registration_shift, res, psi, g), range(0, psi.shape[0])):
+                res[shift] = res0
+                shift += 1
+        return res
+
     def registration_batch(self, psi, g, flow=None, pars = [0.5, 3, 20, 16, 5, 1.1, 0]):
         if (flow is None):
             flow=np.zeros([self.ntheta,self.nz,self.n,2],dtype='float32')
         res = np.zeros([*psi.shape, 2], dtype='float32')
-        with cf.ThreadPoolExecutor(16) as e:
+        with cf.ThreadPoolExecutor() as e:
             shift = 0
             for res0 in e.map(partial(self.registration, res, psi, g, flow, pars), range(0, psi.shape[0])):
                 res[shift] = res0
                 shift += 1
         return res
 
-    def fourier_shift(self, psi, p):
-        res = np.zeros([self.nz, self.n], dtype='complex64')
+    def fourier_shift(self, res, psi, p, id):        
         tmp = np.zeros([2*self.nz, 2*self.n], dtype='complex64')
-        tmp[self.nz//2:3*self.nz//2, self.n//2:3*self.n//2] = psi
+        tmp[self.nz//2:3*self.nz//2, self.n//2:3*self.n//2] = psi[id]
         res0 = np.fft.ifft2(
-            ndimage.fourier_shift(np.fft.fft2(tmp), p))
-        res = res0[self.nz//2:3*self.nz//2, self.n//2:3*self.n//2]
+            ndimage.fourier_shift(np.fft.fft2(tmp), p[id]))
+        res[id] = res0[self.nz//2:3*self.nz//2, self.n//2:3*self.n//2]
+        return res[id]
+    
+    def fourier_shift_batch(self, psi, flow):
+        res = np.zeros(psi.shape, dtype='complex64')
+        with cf.ThreadPoolExecutor() as e:
+            shift = 0
+            for res0 in e.map(partial(self.fourier_shift, res, psi, flow), range(0, psi.shape[0])):                
+                res[shift] = res0
+                shift += 1
         return res
+      
      
     def line_search(self, minf, gamma, psi,Tpsi, d, Td):
         """Line search for the step sizes gamma"""
@@ -123,3 +152,32 @@ class SolverDeform(deform):
                 print("%4d, %.3e, %.7e" %
                       (i, gamma, minf(psi,Tpsi+gamma*Td)))
         return psi
+
+    # Conjugate gradients shift
+    def cg_shift(self, data, psi, flow, titer, xi1=0, rho=0):
+        """CG solver for fourier shift"""
+        # minimization functional
+        def minf(psi,Tpsi):
+            f = np.linalg.norm(Tpsi-data)**2+rho*np.linalg.norm(psi-xi1)**2
+            return f
+
+        for i in range(titer):
+            Tpsi = self.fourier_shift_batch(psi, flow) 
+            grad = self.fourier_shift_batch(Tpsi-data, -flow)+rho*(psi-xi1)
+            if i == 0:
+                d = -grad
+            else:
+                d = -grad+np.linalg.norm(grad)**2 / \
+                    (np.sum(np.conj(d)*(grad-grad0))+1e-32)*d
+            # line search
+            Td = self.fourier_shift_batch(d,flow)
+            gamma = 0.5*self.line_search(minf, 1, psi,Tpsi,d,Td)
+            grad0 = grad
+            # update step
+            psi = psi + gamma*d
+            # check convergence
+            if (np.mod(i, 1) == -1):
+                print("%4d, %.3e, %.7e" %
+                      (i, gamma, minf(psi,Tpsi+gamma*Td)))
+        return psi
+        

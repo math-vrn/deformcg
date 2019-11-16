@@ -19,8 +19,8 @@ if __name__ == "__main__":
     nz = 128  # object size in z
     ntheta = 1  # number of angles (rotations)
     # Load object
-    beta = dxchange.read_tiff('data/beta-chip-128.tiff')[:,64:64+1].swapaxes(0,1)
-    delta = dxchange.read_tiff('data/delta-chip-128.tiff')[:,64:64+1].swapaxes(0,1)
+    beta = dxchange.read_tiff('data/beta-chip-128.tiff')[:,64:64+ntheta].swapaxes(0,1)
+    delta = dxchange.read_tiff('data/delta-chip-128.tiff')[:,64:64+ntheta].swapaxes(0,1)
     u0 = delta+1j*beta
     u = deform(u0)    
     dxchange.write_tiff(u.real,'delta-chip-128.tiff',overwrite=True)
@@ -29,6 +29,14 @@ if __name__ == "__main__":
         flow = slv.registration_batch(u0,u)           
         u1 = slv.apply_flow_batch(u0,flow)
         u2 = slv.apply_flow_batch(u1,-flow)
+        
         print('Adjoint test optical flow: ', np.sum(u1*np.conj(u1)),
               '=?', np.sum(u0*np.conj(u2)))              
+        
+        flow = slv.registration_shift_batch(u0,u)               
+        u1 = slv.fourier_shift_batch(u0,flow)
+        u2 = slv.fourier_shift_batch(u1,-flow)
+        
+        print('Adjoint test optical flow: ', np.sum(u1*np.conj(u1)),
+              '=?', np.sum(u0*np.conj(u2)))                            
         
