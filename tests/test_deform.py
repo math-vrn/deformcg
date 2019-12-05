@@ -26,7 +26,7 @@ if __name__ == "__main__":
     dxchange.write_tiff(u.real,'defdelta-chip-128.tiff',overwrite=True)
     dxchange.write_tiff(u.imag,'defbeta-chip-128.tiff',overwrite=True)
     with df.SolverDeform(ntheta, nz, n) as slv:     
-        flow = slv.registration_batch(u0,u)           
-        rec = slv.cg_deform(u,u*0,flow,12)        
+        flow = slv.registration_flow_batch(u0,u)           
+        rec = slv.cg_deform(u,u*0,flow,12,dbg=True)        
         dxchange.write_tiff(rec.real,'recdelta-chip-128.tiff',overwrite=True)
         dxchange.write_tiff(rec.imag,'recbeta-chip-128.tiff',overwrite=True)
