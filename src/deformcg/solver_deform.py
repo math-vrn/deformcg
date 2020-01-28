@@ -43,7 +43,9 @@ class SolverDeform(deform):
         flow0[:, :, 0] += np.arange(w)
         flow0[:, :, 1] += np.arange(h)[:, np.newaxis]
         res[id].real = cv2.remap(f[id].real, flow0,
-                                 None, cv2.INTER_LANCZOS4)
+                                 None, cv2.INTER_LINEAR)
+        #res[id].imag = cv2.remap(f[id].imag, flow0,
+         #                        None, cv2.INTER_LANCZOS4)                                 
         return res[id]
 
     def apply_flow_batch(self, psi, flow):
@@ -66,6 +68,7 @@ class SolverDeform(deform):
                         (np.max(tmp2)-np.min(tmp2))*255)
         res[id] = cv2.calcOpticalFlowFarneback(
             tmp1, tmp2, flow[id], *pars)
+          
         return res[id]
 
     def registration_shift(self, res, psi, g, upsample_factor, id):
@@ -149,3 +152,31 @@ class SolverDeform(deform):
                 print("%4d, %.3e, %.7e" %
                       (i, gamma, minf(psi, Tpsi+gamma*Td)))
         return psi
+
+    def cg_shift(self, data, psi, flow, titer, xi1=0, rho=0, dbg=False):
+        """CG solver for shift"""
+        # minimization functional
+        def minf(psi, Tpsi):
+            f = np.linalg.norm(Tpsi-data)**2+rho*np.linalg.norm(psi-xi1)**2
+            return f
+
+        for i in range(titer):
+            Tpsi = self.apply_shift_batch(psi, flow)
+            grad = (self.apply_shift_batch(Tpsi-data, -flow) +
+                    rho*(psi-xi1))/max(rho, 1)
+            if i == 0:
+                d = -grad
+            else:
+                d = -grad+np.linalg.norm(grad)**2 / \
+                    (np.sum(np.conj(d)*(grad-grad0))+1e-32)*d
+            # line search
+            Td = self.apply_shift_batch(d, flow)
+            gamma = 0.5*self.line_search(minf, 1, psi,Tpsi,d,Td)
+            grad0 = grad
+            # update step
+            psi = psi + gamma*d
+            # check convergence
+            if (dbg and np.mod(i, 1) == 0):
+                print("%4d, %.3e, %.7e" %
+                      (i, gamma, minf(psi, Tpsi+gamma*Td)))
+        return psi    
