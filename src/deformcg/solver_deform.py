@@ -71,6 +71,27 @@ class SolverDeform(deform):
           
         return res[id]
 
+    def registration_flow_batch(self, psi, g, flow=None, pars=[0.5, 3, 20, 16, 5, 1.1, 0]):
+        """Find optical flow for all projections in parallel"""
+        if (flow is None):
+            flow = np.zeros([self.ntheta, self.nz, self.n, 2], dtype='float32')
+        res = np.zeros([*psi.shape, 2], dtype='float32')
+        with cf.ThreadPoolExecutor() as e:
+            shift = 0
+            for res0 in e.map(partial(self.registration_flow, res, psi, g, flow, pars), range(0, psi.shape[0])):
+                res[shift] = res0
+                shift += 1
+        return res
+
+
+
+
+
+
+
+
+
+    # SHIFT
     def registration_shift(self, res, psi, g, upsample_factor, id):
         """Find x,z shifts for one projection"""
         res[id],_,_ = register_translation(
@@ -83,18 +104,6 @@ class SolverDeform(deform):
         with cf.ThreadPoolExecutor() as e:
             shift = 0
             for res0 in e.map(partial(self.registration_shift, res, psi, g, upsample_factor), range(0, psi.shape[0])):
-                res[shift] = res0
-                shift += 1
-        return res
-
-    def registration_flow_batch(self, psi, g, flow=None, pars=[0.5, 3, 20, 16, 5, 1.1, 0]):
-        """Find optical flow for all projections in parallel"""
-        if (flow is None):
-            flow = np.zeros([self.ntheta, self.nz, self.n, 2], dtype='float32')
-        res = np.zeros([*psi.shape, 2], dtype='float32')
-        with cf.ThreadPoolExecutor() as e:
-            shift = 0
-            for res0 in e.map(partial(self.registration_flow, res, psi, g, flow, pars), range(0, psi.shape[0])):
                 res[shift] = res0
                 shift += 1
         return res
@@ -180,3 +189,5 @@ class SolverDeform(deform):
                 print("%4d, %.3e, %.7e" %
                       (i, gamma, minf(psi, Tpsi+gamma*Td)))
         return psi    
+
+
