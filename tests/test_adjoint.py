@@ -34,7 +34,7 @@ if __name__ == "__main__":
         
         shift0 = np.random.random([ntheta,2])
         u = slv.apply_shift_batch(u0,shift0)   
-        shift = slv.registration_shift_batch(u,u0)      
+        shift = slv.registration_shift_batch(u,u0,10)      
         print('Check shift:', np.linalg.norm(shift-shift0))         
         print(shift[0],'<->',shift0[0])
         print(shift[ntheta-1],'<->',shift0[ntheta-1])
