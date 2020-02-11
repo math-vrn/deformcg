@@ -6,8 +6,9 @@ from itertools import repeat
 from functools import partial
 from deformcg.deform import deform
 from skimage.feature import register_translation
-import cv2
-
+#import cv2
+def getp(a):
+        return a.__array_interface__['data'][0]
 class SolverDeform(deform):
     """Base class for deformation solvers.
     This class is a context manager which provides the basic operators required
@@ -33,7 +34,7 @@ class SolverDeform(deform):
     def __exit__(self, type, value, traceback):
         """Free GPU memory due at interruptions or with-block exit."""
         self.free()
-
+    
     def apply_flow(self, res, f, flow, id):
         """Apply optical flow for one projection."""
         flow0 = flow[id].copy()
@@ -41,8 +42,30 @@ class SolverDeform(deform):
         flow0 = -flow0
         flow0[:, :, 0] += np.arange(w)
         flow0[:, :, 1] += np.arange(h)[:, np.newaxis]
-        res[id].real = cv2.remap(f[id].real, flow0,
-                                None, cv2.INTER_LANCZOS4)
+        
+        a1 = np.array(res[id].real,order='C')
+        a2 = np.array(f[id].real,order='C')
+        a3 = np.array(flow0[:,:,0],order='C')
+        a4 = np.array(flow0[:,:,1],order='C')
+        print(a1.dtype)
+        print(a2.dtype)
+        print(a3.dtype)
+        print(a4.dtype)
+        print(a1.shape)
+        print(a2.shape)
+        print(a3.shape)
+        print(a4.shape)
+        deform.remap(self, getp(a1),getp(a2),getp(a3),getp(a4))
+        res[id].real=a1
+        #cuMat = cv2.cuda_GpuMat()
+        #cuflow = cv2.cuda_GpuMat()
+        #cuMat.upload(f[id].real)
+        #cuflow.upload(flow0)
+        # cuMat2 = cv2.cuda_GpuMat()
+        #cuMat2 = cv2.cuda.remap(, flow0,
+                                #None, cv2.INTER_CUBIC)
+        # res[id].real = cv2.cuda.remap(cuMat, flow0,
+        #                         None, cv2.INTER_LANCZOS4)
         #res[id].imag = cv2.remap(f[id].imag, flow0,
          #                       None, cv2.INTER_LANCZOS4)                                 
         return res[id]
@@ -65,8 +88,8 @@ class SolverDeform(deform):
         tmp2 = g[id].real
         tmp2 = np.uint8((tmp2-np.min(tmp2)) /
                         (np.max(tmp2)-np.min(tmp2))*255)
-        res[id] = cv2.calcOpticalFlowFarneback(
-            tmp1, tmp2, flow[id], *pars)
+        #res[id] = cv2.calcOpticalFlowFarneback(
+            #tmp1, tmp2, flow[id], *pars)
           
         return res[id]
 

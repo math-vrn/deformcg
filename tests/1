@@ -1,0 +1,4 @@
+ttt.cpp: In function ‘int main()’:
+ttt.cpp:11:34: error: ‘CV_INTER_LINEAR’ was not declared in this scope
+     cv::cuda::remap(in,out,m1,m2,CV_INTER_LINEAR);
+                                  ^

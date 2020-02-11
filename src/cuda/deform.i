@@ -24,4 +24,5 @@ public:
   deform(size_t ntheta, size_t nz, size_t n);
   ~deform();  
   void free();
+  void remap(size_t res, size_t f, size_t x, size_t y);
 };

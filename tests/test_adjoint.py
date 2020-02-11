@@ -2,47 +2,74 @@ import dxchange
 import numpy as np
 import deformcg as df
 import elasticdeform
+import matplotlib.pyplot as plt
+
 
 def deform(data):
     res = data.copy()
-    points = [3,3]
-    displacement = (np.random.rand(2, *points) - 0.5)* 10
-    for k in range(0,ntheta):
-      res.real = elasticdeform.deform_grid(data[k].real,displacement,order=5,mode='mirror',crop=None,prefilter=True,axis=None)                                    
-      res.imag = elasticdeform.deform_grid(data[k].imag,displacement,order=5,mode='mirror',crop=None,prefilter=True,axis=None)                                    
+    points = [3, 3]
+#     displacement = (np.random.rand(2, *points) - 0.5)* 10
+#     np.save('disp',displacement)
+    displacement = np.load('disp.npy')
+    for k in range(0, ntheta):
+        res.real = elasticdeform.deform_grid(
+            data[k].real, displacement, order=5, mode='mirror', crop=None, prefilter=True, axis=None)
+        res.imag = elasticdeform.deform_grid(
+            data[k].imag, displacement, order=5, mode='mirror', crop=None, prefilter=True, axis=None)
     return res
+
 
 if __name__ == "__main__":
 
-    # Model parameters
-    n = 128  # object size n x,y
-    nz = 128  # object size in z
-    ntheta = 2  # number of angles (rotations)
-    # Load object
-    beta = dxchange.read_tiff('data/beta-chip-128.tiff')[:,64:64+ntheta].swapaxes(0,1)
-    delta = dxchange.read_tiff('data/delta-chip-128.tiff')[:,64:64+ntheta].swapaxes(0,1)
-    u0 = delta+1j*beta
-        
-    with df.SolverDeform(ntheta, nz, n) as slv:     
-        u = deform(u0)   
-        flow = slv.registration_flow_batch(u0,u)           
-        u1 = slv.apply_flow_batch(u0,flow)
-        u2 = slv.apply_flow_batch(u1,-flow)
-        
-        print('Adjoint test optical flow: ', np.sum(u1*np.conj(u1)),
-              '=?', np.sum(u0*np.conj(u2)))              
-        
-        shift0 = np.random.random([ntheta,2])
-        u = slv.apply_shift_batch(u0,shift0)   
-        shift = slv.registration_shift_batch(u,u0,10)      
-        print('Check shift:', np.linalg.norm(shift-shift0))         
-        print(shift[0],'<->',shift0[0])
-        print(shift[ntheta-1],'<->',shift0[ntheta-1])
-       
-        u1 = slv.apply_shift_batch(u0,shift)
-        u2 = slv.apply_shift_batch(u1,-shift)
-        
-        print('Adjoint test shift: ', np.sum(u1*np.conj(u1)),
-              '=?', np.sum(u0*np.conj(u2)))     
-        print('Inverse test shift: ', np.linalg.norm(u0-u2)/np.linalg.norm(u0))                     
-        
+      # Model parameters
+      n = 128  # object size n x,y
+      nz = 128  # object size in z
+      ntheta = 1  # number of angles (rotations)
+      # Load object
+      beta = dxchange.read_tiff(
+            'data/beta-chip-128.tiff')[:, 64:64+ntheta].swapaxes(0, 1)
+      delta = dxchange.read_tiff(
+            'data/delta-chip-128.tiff')[:, 64:64+ntheta].swapaxes(0, 1)
+      u0 = delta+1j*beta*0
+      pars = [0.25, 3, 20, 16, 9, 1.1, 0]
+
+      with df.SolverDeform(ntheta, nz, n) as slv:
+            u = deform(u0)
+            flow = slv.registration_flow_batch(u0, u, pars=pars)
+            u1 = slv.apply_flow_batch(u0, flow)
+            u2 = slv.apply_flow_batch(u1, -flow)
+            print('Adjoint test optical flow: ', np.sum(u1*np.conj(u1)),
+                  '=?', np.sum(u0*np.conj(u2)))
+            plt.subplot(2, 3, 1)
+            plt.imshow(u[0].real, cmap='gray')
+            plt.colorbar()
+            plt.subplot(2, 3, 2)
+            plt.imshow(u1[0].real, cmap='gray')
+            plt.colorbar()
+            plt.subplot(2, 3, 3)
+            plt.imshow(u[0].real-u1[0].real, cmap='gray')
+            plt.colorbar()
+            plt.subplot(2, 3, 4)
+            plt.imshow(u0[0].real, cmap='gray')
+            plt.colorbar()
+            plt.subplot(2, 3, 5)
+            plt.imshow(u2[0].real, cmap='gray')
+            plt.colorbar()
+            plt.subplot(2, 3, 6)
+            plt.imshow(u0[0].real-u2[0].real, cmap='gray')
+            plt.colorbar()
+            plt.savefig('res.png',dpi=1000)
+            print(np.linalg.norm(u[0].real-u1[0].real))
+            print(np.linalg.norm(u0[0].real-u2[0].real))            
+            exit()
+            shift0 = np.random.random([ntheta, 2])
+            u = slv.apply_shift_batch(u0, shift0)
+            shift = slv.registration_shift_batch(u, u0, 10)
+            print('Check shift:', np.linalg.norm(shift-shift0))
+            print(shift[0], '<->', shift0[0])
+            print(shift[ntheta-1], '<->', shift0[ntheta-1])
+            u1 = slv.apply_shift_batch(u0, shift)
+            u2 = slv.apply_shift_batch(u1, -shift)
+            print('Adjoint test shift: ', np.sum(u1*np.conj(u1)),
+                  '=?', np.sum(u0*np.conj(u2)))
+            print('Inverse test shift: ', np.linalg.norm(u0-u2)/np.linalg.norm(u0))
