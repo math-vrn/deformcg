@@ -38,7 +38,7 @@ void deform::remap(size_t res, size_t f, size_t x, size_t y)
 	gf.upload(mf);
 	gx.upload(mx);
 	gy.upload(my);
-	cv::cuda::remap(gf,gres,gx,gy,0,0);
+	//cv::cuda::remap(gf,gres,gx,gy,0,0);
 	gf.download(mres);
 	memcpy((float*)res,mres.ptr<float>(0),n*nz*sizeof(float));
 }

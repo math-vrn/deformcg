@@ -15,18 +15,19 @@ find_package(NumPy REQUIRED)
 include_directories(${NumPy_INCLUDE_DIRS})
 
 find_package(OpenCV REQUIRED)
-add_compile_options(-std=c++11)
+#add_compile_options(-std=c++11)
 #include_directories(${OpenCV_INCLUDE_DIRS}) # Not needed for CMake >= 2.8.11
 #target_link_libraries(deform ${OpenCV_LIBS})
 
 find_package( OpenCV REQUIRED )
-include_directories("/home/beams/VNIKITIN/sw/opencv/include/")
+include_directories("/home/beams/VNIKITIN/sw/opencv/include/opencv4")
 
 
 # Must tell CMake that SWIG interface files are CXX files
 set_source_files_properties(deform.i PROPERTIES CPLUSPLUS ON)
 swig_add_library(deform LANGUAGE python SOURCES deform.i deform.cu)
 swig_link_libraries(deform cudart cufft ${OpenCV_LIBS})
+
 
 install(FILES "${CMAKE_CURRENT_BINARY_DIR}/deform.py" DESTINATION deformcg)
 install(TARGETS deform LIBRARY DESTINATION deformcg)

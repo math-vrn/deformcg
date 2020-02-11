@@ -4,7 +4,8 @@
 To install opecv+cuda from source:
 
 conda create -n opencv python=3.7
-conda install -c conda-forge scikit-build, ninja
+conda install -c conda-forge scikit-build, ninja, scikit-image
+pip install elasticdeform
 
 git clone https://github.com/opencv/opencv
 git clone https://github.com/opencv/opencv_contrib
@@ -48,8 +49,10 @@ cmake \
     -DCUDA_ARCH_PTX="" \
     -DINSTALL_C_EXAMPLES=OFF \
     -DINSTALL_TESTS=OFF \
-    -DOPENCV_EXTRA_MODULES_PATH=../../opencv_contrib-4.2.0/modules \
-    ../../opencv-4.2.0
+    -DOPENCV_EXTRA_MODULES_PATH=../../opencv_contrib_master/modules \
+    ../../opencv_master;
+    make -j32;
+    make install;
 
 
     export CUDACXX=/home/beams/VNIKITIN/sw/cuda-10.0/bin/nvcc
