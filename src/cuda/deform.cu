@@ -50,29 +50,15 @@ void deform::registration(size_t res_, size_t f_, size_t g_)
 	float *res = (float *)res_;
 	float *f = (float *)f_;
 	float *g = (float *)g_;
+
+	cv::cuda::GpuMat flow_gpu;
+	cv::cuda::GpuMat planes_gpu[2];
+	cv::cuda::GpuMat f_gpu(n,nz, CV_32F, f);    	
+	cv::cuda::GpuMat g_gpu(n,nz, CV_32F, g);    		
+
 	auto algo = cv::cuda::FarnebackOpticalFlow::create();
-
-	cv::Mat mflowx(n,nz, CV_32F);
-	cv::Mat mflowy(n,nz, CV_32F);
-	cv::Mat mf(n,nz, CV_32F,f);
-	cv::Mat mg(n,nz, CV_32F,g);
-	
-	cv::cuda::GpuMat gflow;
-	cv::cuda::GpuMat gf(n,nz, CV_32F);    	
-	cv::cuda::GpuMat gg(n,nz, CV_32F);    	
-	
-	gf.upload(mf);
-	gg.upload(mg);
-
-
-	algo->calc(gf, gg, gflow);
-
-	cv::cuda::GpuMat planes[2];
-	cv::cuda::split(gflow, planes);
-	planes[0].download(mflowx);
-	planes[1].download(mflowy);			
-	cout<<gflow.size()<<endl;
-	cout<<mflowx.at<float>(0,0)<<mflowy.at<float>(50,50)<<endl;
-	memcpy(&res[0],mflowx.ptr<float>(0),n*nz*sizeof(float));
-	memcpy(&res[n*nz],mflowy.ptr<float>(0),n*nz*sizeof(float));
+	algo->calc(f_gpu, g_gpu, flow_gpu);	
+	cv::cuda::split(flow_gpu, planes_gpu);	
+	cudaMemcpy(&res[0],planes_gpu[0].ptr<float>(0),n*nz*sizeof(float),cudaMemcpyDefault);
+	cudaMemcpy(&res[n*nz],planes_gpu[1].ptr<float>(0),n*nz*sizeof(float),cudaMemcpyDefault);
 }

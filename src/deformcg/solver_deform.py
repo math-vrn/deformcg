@@ -8,6 +8,7 @@ from deformcg.deform import deform
 from skimage.feature import register_translation
 import matplotlib.pyplot as plt
 import os
+import cupy as cp
 #import cv2
 def getp(a):
         return a.__array_interface__['data'][0]
@@ -78,35 +79,28 @@ class SolverDeform(deform):
 
     def registration_flow(self, res, psi, g, flow, pars, id):
         """Find optical flow for one projection"""
-        tmp1 = psi[id].real  # use only real part
-        tmp1 = np.float32((tmp1-np.min(tmp1)) /
-                        (np.max(tmp1)-np.min(tmp1))*255)
-        tmp2 = g[id].real
-        tmp2 = np.float32((tmp2-np.min(tmp2)) /
-                       (np.max(tmp2)-np.min(tmp2))*255)
-        
-        a1 = np.array(tmp1.astype('float32'),order='C')
-        a2 = np.array(tmp2.astype('float32'),order='C')
-        a3 = np.array(np.zeros([2,*psi.shape]).astype('float32'),order='C')
-        
-        deform.registration(self,getp(a3),getp(a1),getp(a2))
-        #res[id] = cv2.calcOpticalFlowFarneback(
-            #tmp1, tmp2, flow[id], *pars)
-        print(np.linalg.norm(a3))
-        res[id,:,:,0]=a3[0]
-        res[id,:,:,1]=a3[1]
+        tmp1 = cp.array(psi[id].real)  # use only real part
+        tmp1 = (tmp1-cp.min(tmp1))/(cp.max(tmp1)-cp.min(tmp1))*255
+        tmp2 = cp.array(g[id].real)
+        tmp2 = (tmp2-cp.min(tmp2))/(cp.max(tmp2)-cp.min(tmp2))*255
+        a3 = cp.zeros([2,*psi.shape]).astype('float32')
+
+        deform.registration(self,a3.data.ptr,tmp1.data.ptr,tmp2.data.ptr)
+        a3 = a3.get()
+        res[id] = np.moveaxis(a3,0,-1)
         return res[id]
 
     def registration_flow_batch(self, psi, g, flow=None, pars=[0.5, 3, 20, 16, 5, 1.1, 4]):
         """Find optical flow for all projections in parallel"""
         if (flow is None):
             flow = np.zeros([self.ntheta, self.nz, self.n, 2], dtype='float32')
-        res = np.zeros([*psi.shape, 2], dtype='float32')
+        res = np.zeros([self.ntheta, self.nz, self.n, 2], dtype='float32')
         with cf.ThreadPoolExecutor(32) as e:
             shift = 0
             for res0 in e.map(partial(self.registration_flow, res, psi, g, flow, pars), range(0, psi.shape[0])):
                 res[shift] = res0
                 shift += 1
+        
         return res
 
 
