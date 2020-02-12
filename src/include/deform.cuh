@@ -13,4 +13,5 @@ public:
   ~deform();  
   void free();
   void remap(size_t res, size_t f, size_t x, size_t y);
+  void registration(size_t res, size_t f, size_t g);
 };

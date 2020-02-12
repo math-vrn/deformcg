@@ -6,9 +6,13 @@ from itertools import repeat
 from functools import partial
 from deformcg.deform import deform
 from skimage.feature import register_translation
+import matplotlib.pyplot as plt
+import os
 #import cv2
 def getp(a):
         return a.__array_interface__['data'][0]
+
+
 class SolverDeform(deform):
     """Base class for deformation solvers.
     This class is a context manager which provides the basic operators required
@@ -43,18 +47,10 @@ class SolverDeform(deform):
         flow0[:, :, 0] += np.arange(w)
         flow0[:, :, 1] += np.arange(h)[:, np.newaxis]
         
-        a1 = np.array(res[id].real,order='C')
-        a2 = np.array(f[id].real,order='C')
-        a3 = np.array(flow0[:,:,0],order='C')
-        a4 = np.array(flow0[:,:,1],order='C')
-        print(a1.dtype)
-        print(a2.dtype)
-        print(a3.dtype)
-        print(a4.dtype)
-        print(a1.shape)
-        print(a2.shape)
-        print(a3.shape)
-        print(a4.shape)
+        a1 = np.array(res[id].real.astype('float32'),order='C')
+        a2 = np.array(f[id].real.astype('float32'),order='C')
+        a3 = np.array(flow0[:,:,0].astype('float32'),order='C')
+        a4 = np.array(flow0[:,:,1].astype('float32'),order='C')
         deform.remap(self, getp(a1),getp(a2),getp(a3),getp(a4))
         res[id].real=a1
         #cuMat = cv2.cuda_GpuMat()
@@ -83,14 +79,22 @@ class SolverDeform(deform):
     def registration_flow(self, res, psi, g, flow, pars, id):
         """Find optical flow for one projection"""
         tmp1 = psi[id].real  # use only real part
-        tmp1 = np.uint8((tmp1-np.min(tmp1)) /
+        tmp1 = np.float32((tmp1-np.min(tmp1)) /
                         (np.max(tmp1)-np.min(tmp1))*255)
         tmp2 = g[id].real
-        tmp2 = np.uint8((tmp2-np.min(tmp2)) /
-                        (np.max(tmp2)-np.min(tmp2))*255)
+        tmp2 = np.float32((tmp2-np.min(tmp2)) /
+                       (np.max(tmp2)-np.min(tmp2))*255)
+        
+        a1 = np.array(tmp1.astype('float32'),order='C')
+        a2 = np.array(tmp2.astype('float32'),order='C')
+        a3 = np.array(np.zeros([2,*psi.shape]).astype('float32'),order='C')
+        
+        deform.registration(self,getp(a3),getp(a1),getp(a2))
         #res[id] = cv2.calcOpticalFlowFarneback(
             #tmp1, tmp2, flow[id], *pars)
-          
+        print(np.linalg.norm(a3))
+        res[id,:,:,0]=a3[0]
+        res[id,:,:,1]=a3[1]
         return res[id]
 
     def registration_flow_batch(self, psi, g, flow=None, pars=[0.5, 3, 20, 16, 5, 1.1, 4]):

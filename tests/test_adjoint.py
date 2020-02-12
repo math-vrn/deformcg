@@ -3,7 +3,25 @@ import numpy as np
 import deformcg as df
 import elasticdeform
 import matplotlib.pyplot as plt
+import os 
 
+def myplot(u0, u, flow):
+    [ntheta, nz, n] = u.shape
+
+    plt.figure(figsize=(20, 14))
+    plt.subplot(1, 3, 1)
+    plt.imshow(u0[0].real, cmap='gray')
+
+    plt.subplot(1, 3, 2)
+    plt.imshow(u[0].real, cmap='gray')
+    
+    plt.subplot(1, 3, 3)
+    plt.imshow(df.flowvis.flow_to_color(flow[0]), cmap='gray')
+    if not os.path.exists('tmp'+'_'+str(ntheta)+'/'):
+        os.makedirs('tmp'+'_'+str(ntheta)+'/')
+    plt.savefig('tmp'+'_'+str(ntheta)+'/flow')
+    plt.close()
+    print(np.linalg.norm(flow))        
 
 def deform(data):
     res = data.copy()
@@ -35,7 +53,9 @@ if __name__ == "__main__":
 
       with df.SolverDeform(ntheta, nz, n) as slv:
             u = deform(u0)
-            flow = slv.registration_flow_batch(u0, u, pars=pars)
+            flow = slv.registration_flow_batch(u0, u).astype('double')
+            #flow = np.random.random(flow.shape)*4
+            myplot(u0,u,flow)
             u1 = slv.apply_flow_batch(u0, flow)
             u2 = slv.apply_flow_batch(u1, -flow)
             print('Adjoint test optical flow: ', np.sum(u1*np.conj(u1)),
