@@ -42,29 +42,18 @@ class SolverDeform(deform):
     
     def apply_flow(self, res, f, flow, id):
         """Apply optical flow for one projection."""
-        flow0 = flow[id].copy()
+        flow0 = cp.array(flow[id].copy())
         h, w = flow0.shape[:2]
         flow0 = -flow0
-        flow0[:, :, 0] += np.arange(w)
-        flow0[:, :, 1] += np.arange(h)[:, np.newaxis]
+        flow0[:, :, 0] += cp.arange(w)
+        flow0[:, :, 1] += cp.arange(h)[:, np.newaxis]
         
-        a1 = np.array(res[id].real.astype('float32'),order='C')
-        a2 = np.array(f[id].real.astype('float32'),order='C')
-        a3 = np.array(flow0[:,:,0].astype('float32'),order='C')
-        a4 = np.array(flow0[:,:,1].astype('float32'),order='C')
-        deform.remap(self, getp(a1),getp(a2),getp(a3),getp(a4))
-        res[id].real=a1
-        #cuMat = cv2.cuda_GpuMat()
-        #cuflow = cv2.cuda_GpuMat()
-        #cuMat.upload(f[id].real)
-        #cuflow.upload(flow0)
-        # cuMat2 = cv2.cuda_GpuMat()
-        #cuMat2 = cv2.cuda.remap(, flow0,
-                                #None, cv2.INTER_CUBIC)
-        # res[id].real = cv2.cuda.remap(cuMat, flow0,
-        #                         None, cv2.INTER_LANCZOS4)
-        #res[id].imag = cv2.remap(f[id].imag, flow0,
-         #                       None, cv2.INTER_LANCZOS4)                                 
+        a1 = cp.array(res[id].real.astype('float32'),order='C')
+        a2 = cp.array(f[id].real.astype('float32'),order='C')
+        a3 = cp.array(flow0[:,:,0].astype('float32'),order='C')
+        a4 = cp.array(flow0[:,:,1].astype('float32'),order='C')
+        deform.remap(self, a1.data.ptr,a2.data.ptr,a3.data.ptr,a4.data.ptr)
+        res[id].real=a1.get()        
         return res[id]
 
     def apply_flow_batch(self, psi, flow):
@@ -83,17 +72,15 @@ class SolverDeform(deform):
         tmp1 = (tmp1-cp.min(tmp1))/(cp.max(tmp1)-cp.min(tmp1))*255
         tmp2 = cp.array(g[id].real)
         tmp2 = (tmp2-cp.min(tmp2))/(cp.max(tmp2)-cp.min(tmp2))*255
-        a3 = cp.zeros([2,*psi.shape]).astype('float32')
+        a3 = cp.zeros([*psi.shape,2]).astype('float32')
 
-        deform.registration(self,a3.data.ptr,tmp1.data.ptr,tmp2.data.ptr)
-        a3 = a3.get()
-        res[id] = np.moveaxis(a3,0,-1)
+        deform.registration(self,a3.data.ptr,tmp1.data.ptr,tmp2.data.ptr, *pars)
+        res[id] = a3.get()
         return res[id]
 
-    def registration_flow_batch(self, psi, g, flow=None, pars=[0.5, 3, 20, 16, 5, 1.1, 4]):
+    def registration_flow_batch(self, psi, g, flow, pars):        
         """Find optical flow for all projections in parallel"""
-        if (flow is None):
-            flow = np.zeros([self.ntheta, self.nz, self.n, 2], dtype='float32')
+        
         res = np.zeros([self.ntheta, self.nz, self.n, 2], dtype='float32')
         with cf.ThreadPoolExecutor(32) as e:
             shift = 0

@@ -49,11 +49,12 @@ if __name__ == "__main__":
       delta = dxchange.read_tiff(
             'data/delta-chip-128.tiff')[:, 64:64+ntheta].swapaxes(0, 1)
       u0 = delta+1j*beta*0
-      pars = [0.25, 3, 20, 16, 9, 1.1, 0]
-
+      pars=[4, 0.5, False, 23, 10, 5, 1.1, 4]
+      flow = np.zeros([ntheta, nz, n, 2], dtype='float32')
+      #int numLevels=5, double pyrScale=0.5, bool fastPyramids=false, int winSize=13, int numIters=10, int polyN=5, double polySigma=1.1, int flags=0
       with df.SolverDeform(ntheta, nz, n) as slv:
             u = deform(u0)
-            flow = slv.registration_flow_batch(u0, u).astype('double')
+            flow = slv.registration_flow_batch(u0, u, flow, pars).astype('double')
             #flow = np.random.random(flow.shape)*4
             myplot(u0,u,flow)
             u1 = slv.apply_flow_batch(u0, flow)
