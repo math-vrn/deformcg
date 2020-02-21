@@ -21,12 +21,14 @@ if __name__ == "__main__":
     # Load object
     beta = dxchange.read_tiff('data/beta-chip-128.tiff')[:,64:64+ntheta].swapaxes(0,1)
     delta = dxchange.read_tiff('data/delta-chip-128.tiff')[:,64:64+ntheta].swapaxes(0,1)
-    u0 = delta+1j*beta
+    u0 = delta+1j*beta*0
     u = deform(u0)    
     dxchange.write_tiff(u.real,'defdelta-chip-128.tiff',overwrite=True)
     dxchange.write_tiff(u.imag,'defbeta-chip-128.tiff',overwrite=True)
+    pars=[4, 0.5, False, 23, 10, 5, 1.1, 4]
+    flow = np.zeros([ntheta, nz, n, 2], dtype='float32')
     with df.SolverDeform(ntheta, nz, n) as slv:     
-        flow = slv.registration_flow_batch(u0,u)           
+        flow = slv.registration_flow_batch(u0,u,flow,pars)           
         rec = slv.cg_deform(u,u*0,flow,12,dbg=True)        
         dxchange.write_tiff(rec.real,'recdelta-chip-128.tiff',overwrite=True)
         dxchange.write_tiff(rec.imag,'recbeta-chip-128.tiff',overwrite=True)

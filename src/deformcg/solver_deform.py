@@ -59,7 +59,7 @@ class SolverDeform(deform):
     def apply_flow_batch(self, psi, flow):
         """Apply optical flow for all projection in parallel."""
         res = np.zeros(psi.shape, dtype='complex64')
-        with cf.ThreadPoolExecutor(32) as e:
+        with cf.ThreadPoolExecutor() as e:
             shift = 0
             for res0 in e.map(partial(self.apply_flow, res, psi, flow), range(0, psi.shape[0])):
                 res[shift] = res0
@@ -72,17 +72,16 @@ class SolverDeform(deform):
         tmp1 = (tmp1-cp.min(tmp1))/(cp.max(tmp1)-cp.min(tmp1))*255
         tmp2 = cp.array(g[id].real)
         tmp2 = (tmp2-cp.min(tmp2))/(cp.max(tmp2)-cp.min(tmp2))*255
-        a3 = cp.zeros([*psi.shape,2]).astype('float32')
-
-        deform.registration(self,a3.data.ptr,tmp1.data.ptr,tmp2.data.ptr, *pars)
-        res[id] = a3.get()
+        tmp3 = cp.zeros([*psi[id].shape,2]).astype('float32')
+        deform.registration(self,tmp3.data.ptr,tmp1.data.ptr,tmp2.data.ptr, *pars)
+        res[id] = tmp3.get()
         return res[id]
 
     def registration_flow_batch(self, psi, g, flow, pars):        
         """Find optical flow for all projections in parallel"""
         
         res = np.zeros([self.ntheta, self.nz, self.n, 2], dtype='float32')
-        with cf.ThreadPoolExecutor(32) as e:
+        with cf.ThreadPoolExecutor() as e:
             shift = 0
             for res0 in e.map(partial(self.registration_flow, res, psi, g, flow, pars), range(0, psi.shape[0])):
                 res[shift] = res0

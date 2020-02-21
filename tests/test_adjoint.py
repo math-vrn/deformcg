@@ -26,9 +26,9 @@ def myplot(u0, u, flow):
 def deform(data):
     res = data.copy()
     points = [3, 3]
-#     displacement = (np.random.rand(2, *points) - 0.5)* 10
+    displacement = (np.random.rand(2, *points) - 0.5)* 10
 #     np.save('disp',displacement)
-    displacement = np.load('disp.npy')
+#    displacement = np.load('disp.npy')
     for k in range(0, ntheta):
         res.real = elasticdeform.deform_grid(
             data[k].real, displacement, order=5, mode='mirror', crop=None, prefilter=True, axis=None)
@@ -42,7 +42,7 @@ if __name__ == "__main__":
       # Model parameters
       n = 128  # object size n x,y
       nz = 128  # object size in z
-      ntheta = 1  # number of angles (rotations)
+      ntheta = 16  # number of angles (rotations)
       # Load object
       beta = dxchange.read_tiff(
             'data/beta-chip-128.tiff')[:, 64:64+ntheta].swapaxes(0, 1)
@@ -55,7 +55,6 @@ if __name__ == "__main__":
       with df.SolverDeform(ntheta, nz, n) as slv:
             u = deform(u0)
             flow = slv.registration_flow_batch(u0, u, flow, pars).astype('double')
-            #flow = np.random.random(flow.shape)*4
             myplot(u0,u,flow)
             u1 = slv.apply_flow_batch(u0, flow)
             u2 = slv.apply_flow_batch(u1, -flow)
