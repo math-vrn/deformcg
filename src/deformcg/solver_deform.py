@@ -6,13 +6,7 @@ from itertools import repeat
 from functools import partial
 from deformcg.deform import deform
 from skimage.feature import register_translation
-import matplotlib.pyplot as plt
-import os
-import cupy as cp
-#import cv2
-def getp(a):
-        return a.__array_interface__['data'][0]
-
+import cv2
 
 class SolverDeform(deform):
     """Base class for deformation solvers.
@@ -39,27 +33,24 @@ class SolverDeform(deform):
     def __exit__(self, type, value, traceback):
         """Free GPU memory due at interruptions or with-block exit."""
         self.free()
-    
+
     def apply_flow(self, res, f, flow, id):
         """Apply optical flow for one projection."""
-        flow0 = cp.array(flow[id].copy())
+        flow0 = flow[id].copy()
         h, w = flow0.shape[:2]
         flow0 = -flow0
-        flow0[:, :, 0] += cp.arange(w)
-        flow0[:, :, 1] += cp.arange(h)[:, np.newaxis]
-        
-        a1 = cp.array(res[id].real.astype('float32'),order='C')
-        a2 = cp.array(f[id].real.astype('float32'),order='C')
-        a3 = cp.array(flow0[:,:,0].astype('float32'),order='C')
-        a4 = cp.array(flow0[:,:,1].astype('float32'),order='C')
-        deform.remap(self, a1.data.ptr,a2.data.ptr,a3.data.ptr,a4.data.ptr)
-        res[id].real=a1.get()        
+        flow0[:, :, 0] += np.arange(w)
+        flow0[:, :, 1] += np.arange(h)[:, np.newaxis]
+        res[id].real = cv2.remap(f[id].real, flow0,
+                                None, cv2.INTER_LANCZOS4)
+        #res[id].imag = cv2.remap(f[id].imag, flow0,
+         #                       None, cv2.INTER_LANCZOS4)                                 
         return res[id]
 
     def apply_flow_batch(self, psi, flow):
         """Apply optical flow for all projection in parallel."""
         res = np.zeros(psi.shape, dtype='complex64')
-        with cf.ThreadPoolExecutor() as e:
+        with cf.ThreadPoolExecutor(32) as e:
             shift = 0
             for res0 in e.map(partial(self.apply_flow, res, psi, flow), range(0, psi.shape[0])):
                 res[shift] = res0
@@ -68,25 +59,27 @@ class SolverDeform(deform):
 
     def registration_flow(self, res, psi, g, flow, pars, id):
         """Find optical flow for one projection"""
-        tmp1 = cp.array(psi[id].real)  # use only real part
-        tmp1 = (tmp1-cp.min(tmp1))/(cp.max(tmp1)-cp.min(tmp1))*255
-        tmp2 = cp.array(g[id].real)
-        tmp2 = (tmp2-cp.min(tmp2))/(cp.max(tmp2)-cp.min(tmp2))*255
-        tmp3 = cp.zeros([*psi[id].shape,2]).astype('float32')
-        deform.registration(self,tmp3.data.ptr,tmp1.data.ptr,tmp2.data.ptr, *pars)
-        res[id] = tmp3.get()
+        tmp1 = psi[id].real  # use only real part
+        tmp1 = np.uint8((tmp1-np.min(tmp1)) /
+                        (np.max(tmp1)-np.min(tmp1))*255)
+        tmp2 = g[id].real
+        tmp2 = np.uint8((tmp2-np.min(tmp2)) /
+                        (np.max(tmp2)-np.min(tmp2))*255)
+        res[id] = cv2.calcOpticalFlowFarneback(
+            tmp1, tmp2, flow[id], *pars)
+          
         return res[id]
 
-    def registration_flow_batch(self, psi, g, flow, pars):        
+    def registration_flow_batch(self, psi, g, flow=None, pars=[0.5, 3, 20, 16, 5, 1.1, 4]):
         """Find optical flow for all projections in parallel"""
-        
-        res = np.zeros([self.ntheta, self.nz, self.n, 2], dtype='float32')
-        with cf.ThreadPoolExecutor() as e:
+        if (flow is None):
+            flow = np.zeros([self.ntheta, self.nz, self.n, 2], dtype='float32')
+        res = np.zeros([*psi.shape, 2], dtype='float32')
+        with cf.ThreadPoolExecutor(32) as e:
             shift = 0
             for res0 in e.map(partial(self.registration_flow, res, psi, g, flow, pars), range(0, psi.shape[0])):
                 res[shift] = res0
                 shift += 1
-        
         return res
 
 
