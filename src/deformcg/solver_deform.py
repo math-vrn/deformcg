@@ -47,10 +47,10 @@ class SolverDeform(deform):
          #                       None, cv2.INTER_LANCZOS4)                                 
         return res[id]
 
-    def apply_flow_batch(self, psi, flow):
+    def apply_flow_batch(self, psi, flow,nproc=16):
         """Apply optical flow for all projection in parallel."""
         res = np.zeros(psi.shape, dtype='complex64')
-        with cf.ThreadPoolExecutor(32) as e:
+        with cf.ThreadPoolExecutor(nproc) as e:
             shift = 0
             for res0 in e.map(partial(self.apply_flow, res, psi, flow), range(0, psi.shape[0])):
                 res[shift] = res0
@@ -70,12 +70,12 @@ class SolverDeform(deform):
           
         return res[id]
 
-    def registration_flow_batch(self, psi, g, flow=None, pars=[0.5, 3, 20, 16, 5, 1.1, 4]):
+    def registration_flow_batch(self, psi, g, flow=None, pars=[0.5, 3, 20, 16, 5, 1.1, 4],nproc=16):
         """Find optical flow for all projections in parallel"""
         if (flow is None):
             flow = np.zeros([self.ntheta, self.nz, self.n, 2], dtype='float32')
         res = np.zeros([*psi.shape, 2], dtype='float32')
-        with cf.ThreadPoolExecutor(32) as e:
+        with cf.ThreadPoolExecutor(nproc) as e:
             shift = 0
             for res0 in e.map(partial(self.registration_flow, res, psi, g, flow, pars), range(0, psi.shape[0])):
                 res[shift] = res0
@@ -120,7 +120,7 @@ class SolverDeform(deform):
     def apply_shift_batch(self, psi, flow):
         """Apply shift for all projections in parallel"""
         res = np.zeros(psi.shape, dtype='complex64')
-        with cf.ThreadPoolExecutor(32) as e:
+        with cf.ThreadPoolExecutor(16) as e:
             shift = 0
             for res0 in e.map(partial(self.apply_shift, res, psi, flow), range(0, psi.shape[0])):
                 res[shift] = res0
@@ -133,7 +133,7 @@ class SolverDeform(deform):
             gamma *= 0.5
         return gamma
 
-    def cg_deform(self, data, psi, flow, titer, xi1=0, rho=0, dbg=False):
+    def cg_deform(self, data, psi, flow, titer, xi1=0, rho=0, nproc=16, dbg=False):
         """CG solver for deformation"""
         # minimization functional
         def minf(psi, Tpsi):
@@ -141,8 +141,8 @@ class SolverDeform(deform):
             return f
 
         for i in range(titer):
-            Tpsi = self.apply_flow_batch(psi, flow)
-            grad = (self.apply_flow_batch(Tpsi-data, -flow) +
+            Tpsi = self.apply_flow_batch(psi, flow,nproc)
+            grad = (self.apply_flow_batch(Tpsi-data, -flow,nproc) +
                     rho*(psi-xi1))/max(rho, 1)
             if i == 0:
                 d = -grad
@@ -150,13 +150,13 @@ class SolverDeform(deform):
                 d = -grad+np.linalg.norm(grad)**2 / \
                     (np.sum(np.conj(d)*(grad-grad0))+1e-32)*d
             # line search
-            Td = self.apply_flow_batch(d, flow)
+            Td = self.apply_flow_batch(d, flow,nproc)
             gamma = 0.5*self.line_search(minf, 1, psi,Tpsi,d,Td)
             grad0 = grad
             # update step
             psi = psi + gamma*d
             # check convergence
-            if (dbg and np.mod(i, 1) == 0):
+            if (dbg and np.mod(i, 1) == -1):
                 print("%4d, %.3e, %.7e" %
                       (i, gamma, minf(psi, Tpsi+gamma*Td)))
         return psi
