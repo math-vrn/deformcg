@@ -1,6 +1,7 @@
 import numpy as np
 import concurrent.futures as cf
 import threading
+from multiprocessing import Pool
 from scipy import ndimage
 from itertools import repeat
 from functools import partial
@@ -34,50 +35,62 @@ class SolverDeform(deform):
         """Free GPU memory due at interruptions or with-block exit."""
         self.free()
 
-    def apply_flow(self, res, f, flow, id):
+    def apply_flow(self, f, flow, id):
         """Apply optical flow for one projection."""
         flow0 = flow[id].copy()
         h, w = flow0.shape[:2]
         flow0 = -flow0
         flow0[:, :, 0] += np.arange(w)
         flow0[:, :, 1] += np.arange(h)[:, np.newaxis]
-        res[id].real = cv2.remap(f[id].real, flow0,
-                                None, cv2.INTER_LANCZOS4)
+        f0 = f[id].real
+        res = cv2.remap(f0, flow0,
+                                None, cv2.INTER_LANCZOS4)+0j
         #res[id].imag = cv2.remap(f[id].imag, flow0,
          #                       None, cv2.INTER_LANCZOS4)                                 
-        return res[id]
+        return res
 
     def apply_flow_batch(self, psi, flow,nproc=16):
         """Apply optical flow for all projection in parallel."""
         res = np.zeros(psi.shape, dtype='complex64')
         with cf.ThreadPoolExecutor(nproc) as e:
             shift = 0
-            for res0 in e.map(partial(self.apply_flow, res, psi, flow), range(0, psi.shape[0])):
+            for res0 in e.map(partial(self.apply_flow, psi, flow), range(0, psi.shape[0])):
                 res[shift] = res0
                 shift += 1
         return res
 
-    def registration_flow(self, res, psi, g, flow, pars, id):
+    def registration_flow(self, psi, g, mmin,mmax, flow, pars, id):
         """Find optical flow for one projection"""
         tmp1 = psi[id].real  # use only real part
-        tmp1 = np.uint8((tmp1-np.min(tmp1)) /
-                        (np.max(tmp1)-np.min(tmp1))*255)
+        # tmp1 = np.uint8((tmp1-np.min(tmp1)) /
+        #                 (np.max(tmp1)-np.min(tmp1))*255)
+        # tmp2 = g[id].real
+        # tmp2 = np.uint8((tmp2-np.min(tmp2)) /
+        #                 (np.max(tmp2)-np.min(tmp2))*255)
+        tmp1 = ((tmp1-mmin) /
+                        (mmax-mmin)*255)
+        tmp1[tmp1>255] = 255
+        tmp1[tmp1<0] = 0
         tmp2 = g[id].real
-        tmp2 = np.uint8((tmp2-np.min(tmp2)) /
-                        (np.max(tmp2)-np.min(tmp2))*255)
-        res[id] = cv2.calcOpticalFlowFarneback(
-            tmp1, tmp2, flow[id], *pars)
+        tmp2 = ((tmp2-mmin) /
+                        (mmax-mmin)*255)
+        tmp2[tmp2>255] = 255
+        tmp2[tmp2<0] = 0
+        flow0 = flow[id]
+        pars0 = pars.copy()
+        res = cv2.calcOpticalFlowFarneback(
+            tmp1, tmp2, flow0, *pars0)
           
-        return res[id]
+        return res
 
-    def registration_flow_batch(self, psi, g, flow=None, pars=[0.5, 3, 20, 16, 5, 1.1, 4],nproc=16):
+    def registration_flow_batch(self, psi, g, mmin,mmax, flow=None, pars=[0.5, 3, 20, 16, 5, 1.1, 4],nproc=16):
         """Find optical flow for all projections in parallel"""
         if (flow is None):
             flow = np.zeros([self.ntheta, self.nz, self.n, 2], dtype='float32')
         res = np.zeros([*psi.shape, 2], dtype='float32')
         with cf.ThreadPoolExecutor(nproc) as e:
             shift = 0
-            for res0 in e.map(partial(self.registration_flow, res, psi, g, flow, pars), range(0, psi.shape[0])):
+            for res0 in e.map(partial(self.registration_flow, psi, g, mmin,mmax,flow, pars), range(0, psi.shape[0])):
                 res[shift] = res0
                 shift += 1
         return res
