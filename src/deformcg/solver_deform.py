@@ -99,10 +99,6 @@ class SolverDeform(deform):
 
 
 
-
-
-
-
     # SHIFT
     def registration_shift(self, res, psi, g, upsample_factor, id):
         """Find x,z shifts for one projection"""
@@ -169,7 +165,7 @@ class SolverDeform(deform):
             # update step
             psi = psi + gamma*d
             # check convergence
-            if (dbg and np.mod(i, 1) == -1):
+            if (dbg and np.mod(i, 4) == 0):
                 print("%4d, %.3e, %.7e" %
                       (i, gamma, minf(psi, Tpsi+gamma*Td)))
         return psi
@@ -197,7 +193,7 @@ class SolverDeform(deform):
             # update step
             psi = psi + gamma*d
             # check convergence
-            if (dbg and np.mod(i, 1) == 0):
+            if (dbg and np.mod(i, 4) == 0):
                 print("%4d, %.3e, %.7e" %
                       (i, gamma, minf(psi, Tpsi+gamma*Td)))
         return psi    
