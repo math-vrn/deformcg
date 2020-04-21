@@ -232,8 +232,8 @@ class SolverDeform(deform):
             return f
 
         for i in range(titer):
-            Tpsi = self.apply_shift_batch(psi, flow)
-            grad = (self.apply_shift_batch(Tpsi-data, -flow) +
+            Tpsi = self.apply_shift(psi, flow)
+            grad = (self.apply_shift(Tpsi-data, -flow) +
                     rho*(psi-xi1))/max(rho, 1)
             if i == 0:
                 d = -grad
@@ -241,7 +241,7 @@ class SolverDeform(deform):
                 d = -grad+np.linalg.norm(grad)**2 / \
                     (np.sum(np.conj(d)*(grad-grad0))+1e-32)*d
             # line search
-            Td = self.apply_shift_batch(d, flow)
+            Td = self.apply_shift(d, flow)
             gamma = 0.5*self.line_search(minf, 1, psi,Tpsi,d,Td)
             grad0 = grad
             # update step
