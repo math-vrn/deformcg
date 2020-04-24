@@ -7,7 +7,7 @@ from itertools import repeat
 from functools import partial
 from deformcg.deform import deform
 from skimage.feature import register_translation
-#import cv2
+import cv2
 import cupy as cp
 
 class SolverDeform(deform):
@@ -23,10 +23,10 @@ class SolverDeform(deform):
         The pixel width and height of the projection.   
     """
 
-    def __init__(self, ntheta, nz, n):
+    def __init__(self, ntheta, nz, n, ptheta):
         """Please see help(SolverTomo) for more info."""
         # create class for the tomo transform associated with first gpu
-        super().__init__(ntheta, nz, n)
+        super().__init__(ntheta, nz, n, ptheta)
 
     def __enter__(self):
         """Return self at start of a with-block."""
@@ -36,7 +36,7 @@ class SolverDeform(deform):
         """Free GPU memory due at interruptions or with-block exit."""
         self.free()
 
-    def apply_flow(self, f, flow, id):
+    def apply_flow_cpu(self, f, flow, id):
         """Apply optical flow for one projection."""
         flow0 = flow[id].copy()
         h, w = flow0.shape[:2]
@@ -44,20 +44,16 @@ class SolverDeform(deform):
         flow0[:, :, 0] += np.arange(w)
         flow0[:, :, 1] += np.arange(h)[:, np.newaxis]
         f0 = f[id]
-        #print(f0[0,0])
-        #exit()
         res = cv2.remap(f0, flow0,
                                 None, cv2.INTER_LANCZOS4)
-        #res[id].imag = cv2.remap(f[id].imag, flow0,
-         #                       None, cv2.INTER_LANCZOS4)                                 
         return res
 
-    def apply_flow_batch(self, psi, flow,nproc=16):
+    def apply_flow_cpu_batch(self, psi, flow,nproc=16):
         """Apply optical flow for all projection in parallel."""
         res = np.zeros(psi.shape, dtype='float32')
         with cf.ThreadPoolExecutor(nproc) as e:
             shift = 0
-            for res0 in e.map(partial(self.apply_flow, psi, flow), range(0, psi.shape[0])):
+            for res0 in e.map(partial(self.apply_flow_cpu, psi, flow), range(0, psi.shape[0])):
                 res[shift] = res0
                 shift += 1
         return res
@@ -107,8 +103,8 @@ class SolverDeform(deform):
             return f
 
         for i in range(titer):
-            Tpsi = self.apply_flow_batch(psi, flow,nproc)
-            grad = (self.apply_flow_batch(Tpsi-data, -flow,nproc) +
+            Tpsi = self.apply_flow_cpu_batch(psi, flow,nproc)
+            grad = (self.apply_flow_cpu_batch(Tpsi-data, -flow,nproc) +
                     rho*(psi-xi1))/max(rho, 1)
             if i == 0:
                 d = -grad
@@ -116,7 +112,7 @@ class SolverDeform(deform):
                 d = -grad+np.linalg.norm(grad)**2 / \
                     (np.sum(np.conj(d)*(grad-grad0))+1e-32)*d
             # line search
-            Td = self.apply_flow_batch(d, flow,nproc)
+            Td = self.apply_flow_cpu_batch(d, flow,nproc)
             gamma = 0.5*self.line_search(minf, 1, psi,Tpsi,d,Td)
             grad0 = grad
             # update step
@@ -129,23 +125,107 @@ class SolverDeform(deform):
 
 
 
+    def apply_flow_gpu(self,f,flow):
+        g = cp.zeros([self.ptheta,self.nz,self.n],dtype='float32')
+        h, w = flow.shape[1:3]
+        flow = -flow.copy()
+        flow[:,:, :, 0] += cp.arange(w)
+        flow[:,:, :, 1] += cp.arange(h)[:, cp.newaxis]
+
+        flowx = cp.asarray(flow[:,:,:,0],order='C')
+        flowy = cp.asarray(flow[:,:,:,1],order='C')
+        
+        self.remap(g.data.ptr,f.data.ptr,flowx.data.ptr,flowy.data.ptr)
+        return g
 
 
+    def apply_flow_gpu_batch(self, f, flow):
+        res = np.zeros([self.ntheta, self.nz, self.n], dtype='float32')
+        for k in range(0, self.ntheta//self.ptheta):
+            ids = np.arange(k*self.ptheta, (k+1)*self.ptheta)
+            # copy data part to gpu
+            f_gpu = cp.array(f[ids])
+            flow_gpu = cp.array(flow[ids])            
+            # Radon transform
+            res_gpu = self.apply_flow_gpu(f_gpu,flow_gpu)
+            # copy result to cpu
+            res[ids] = res_gpu.get()            
+        return res
+  
+    def cg_deform_gpu(self, data, psi, flow, titer, xi1=0, rho=0, nproc=16, dbg=False):
+        """CG solver for deformation"""
+        # minimization functional
+        def minf(psi, Tpsi):
+            f = cp.linalg.norm(Tpsi-data)**2+rho*cp.linalg.norm(psi-xi1)**2
+            return f
+
+        for i in range(titer):
+            Tpsi = self.apply_flow_gpu(psi, flow)
+            grad = (self.apply_flow_gpu(Tpsi-data, -flow) +
+                    rho*(psi-xi1))/max(rho, 1)
+            if i == 0:
+                d = -grad
+            else:
+                d = -grad+cp.linalg.norm(grad)**2 / \
+                    (cp.sum(cp.conj(d)*(grad-grad0))+1e-32)*d
+            # line search
+            Td = self.apply_flow_gpu(d, flow)
+            gamma = 0.5*self.line_search(minf, 1, psi,Tpsi,d,Td)
+            grad0 = grad
+            # update step
+            psi = psi + gamma*d
+            # check convergence
+            if (dbg):
+                print("%4d, %.3e, %.7e" %
+                      (i, gamma, minf(psi, Tpsi+gamma*Td)))
+        return psi
+
+    def cg_deform_gpu_batch(self, data, psi, flow, titer, xi1=0, rho=0, nproc=16, dbg=False):
+        res = np.zeros([self.ntheta, self.nz, self.n], dtype='float32')
+        for k in range(0, self.ntheta//self.ptheta):
+            ids = np.arange(k*self.ptheta, (k+1)*self.ptheta)
+            # copy data part to gpu
+            data_gpu = cp.array(data[ids])
+            psi_gpu = cp.array(psi[ids])    
+            xi1_gpu = cp.array(xi1[ids])            
+            flow_gpu = cp.array(flow[ids])
+            # Radon transform
+            res_gpu = self.cg_deform_gpu(data_gpu,psi_gpu,flow_gpu,titer,xi1_gpu,rho,dbg)
+            # copy result to cpu
+            res[ids] = res_gpu.get()
+            
+        return res
+        
+
+
+
+    #SHIFTS
 
 
 
 
     def apply_shift(self, psi, p):
         """Apply shift for all projections."""
-        psi = cp.array(psi)
-        p = cp.array(p)
         tmp = cp.zeros([psi.shape[0],2*self.nz, 2*self.n], dtype='float32')
         tmp[:,self.nz//2:3*self.nz//2, self.n//2:3*self.n//2] = psi
         [x,y] = cp.meshgrid(cp.fft.rfftfreq(2*self.n),cp.fft.fftfreq(2*self.nz))
-        shift = np.exp(-2*cp.pi*1j*(x*p[:,1,None,None]+y*p[:,0,None,None]))
+        shift = cp.exp(-2*cp.pi*1j*(x*p[:,1,None,None]+y*p[:,0,None,None]))
         res0 = cp.fft.irfft2(shift*cp.fft.rfft2(tmp))
         res = res0[:,self.nz//2:3*self.nz//2, self.n//2:3*self.n//2]
         return res
+    
+    def apply_shift_batch(self, u):
+        res = np.zeros([self.ntheta, self.nz, self.n], dtype='float32')
+        for k in range(0, self.ntheta//self.ptheta):
+            ids = np.arange(k*self.ptheta, (k+1)*self.ptheta)
+            # copy data part to gpu
+            u_gpu = cp.array(u[ids])
+            # Radon transform
+            res_gpu = self.apply_shift(u_gpu)
+            # copy result to cpu
+            res[ids] = res_gpu.get()
+        return res
+
 
     def _upsampled_dft(self, data, ups,
                    upsample_factor=1, axis_offsets=None):
@@ -163,8 +243,6 @@ class SolverDeform(deform):
         return rec
 
     def registration_shift(self, src_image, target_image, upsample_factor=1, space="real"):
-        src_image = cp.array(src_image)
-        target_image = cp.array(target_image)
         
         # assume complex data is already in Fourier space
         if space.lower() == 'fourier':
@@ -222,7 +300,20 @@ class SolverDeform(deform):
                 shifts[dim] = 0
 
         
-        return shifts.get()
+        return shifts
+    
+    def registration_shift_batch(self, u, w, upsample_factor=1, space="real"):
+        res = np.zeros([self.ntheta, 2], dtype='float32')
+        for k in range(0, self.ntheta//self.ptheta):
+            ids = np.arange(k*self.ptheta, (k+1)*self.ptheta)
+            # copy data part to gpu
+            u_gpu = cp.array(u[ids])
+            w_gpu = cp.array(w[ids])
+            # Radon transform
+            res_gpu = self.registration_shift(u_gpu, w_gpu, upsample_factor, space)
+            # copy result to cpu
+            res[ids] = res_gpu.get()
+        return res
 
     def cg_shift(self, data, psi, flow, titer, xi1=0, rho=0, dbg=False):
         """CG solver for shift"""
@@ -232,8 +323,8 @@ class SolverDeform(deform):
             return f
 
         for i in range(titer):
-            Tpsi = self.apply_shift(psi, flow)
-            grad = (self.apply_shift(Tpsi-data, -flow) +
+            Tpsi = self.apply_shift_batch(psi, flow)
+            grad = (self.apply_shift_batch(Tpsi-data, -flow) +
                     rho*(psi-xi1))/max(rho, 1)
             if i == 0:
                 d = -grad
@@ -241,7 +332,7 @@ class SolverDeform(deform):
                 d = -grad+np.linalg.norm(grad)**2 / \
                     (np.sum(np.conj(d)*(grad-grad0))+1e-32)*d
             # line search
-            Td = self.apply_shift(d, flow)
+            Td = self.apply_shift_batch(d, flow)
             gamma = 0.5*self.line_search(minf, 1, psi,Tpsi,d,Td)
             grad0 = grad
             # update step
@@ -252,4 +343,55 @@ class SolverDeform(deform):
                       (i, gamma, minf(psi, Tpsi+gamma*Td)))
         return psi    
 
+    
 
+
+
+    def cg_shift_gpu(self, data, psi, flow, titer, xi1=0, rho=0, dbg=False):
+        """CG solver for shift"""
+        # minimization functional
+        def minf(psi, Tpsi):
+            f = cp.linalg.norm(Tpsi-data)**2+rho*cp.linalg.norm(psi-xi1)**2
+            return f
+
+        for i in range(titer):
+            Tpsi = self.apply_shift(psi, flow)            
+            #flow = self.registration_shift(data, psi, 1)
+            # Tpsi = self.apply_shift(psi, flow)
+            # print('a',np.linalg.norm(Tpsi-data))
+            
+            grad = (self.apply_shift(Tpsi-data, -flow) +
+                    rho*(psi-xi1))/max(rho, 1)
+            if i == 0:
+                d = -grad
+            else:
+                d = -grad+cp.linalg.norm(grad)**2 / \
+                    (np.sum(cp.conj(d)*(grad-grad0))+1e-32)*d
+            # line search
+            Td = self.apply_shift(d, flow)
+            gamma = 0.5*self.line_search(minf, 1, psi,Tpsi,d,Td)
+            grad0 = grad
+            # update step
+            psi = psi + gamma*d
+            # check convergence
+            if (dbg):
+                print("%4d, %.3e, %.7e" %
+                      (i, gamma, minf(psi, Tpsi+gamma*Td)))
+        return psi,flow
+
+
+    def cg_shift_batch(self, data, psi, flow, titer, xi1=0, rho=0, dbg=False):
+        res = np.zeros([self.ntheta, self.nz, self.n], dtype='float32')
+        for k in range(0, self.ntheta//self.ptheta):
+            ids = np.arange(k*self.ptheta, (k+1)*self.ptheta)
+            # copy data part to gpu
+            data_gpu = cp.array(data[ids])
+            psi_gpu = cp.array(psi[ids])    
+            xi1_gpu = cp.array(xi1[ids])            
+            flow_gpu = cp.array(flow[ids])
+            # Radon transform
+            res_gpu,flow_gpu = self.cg_shift_gpu(data_gpu,psi_gpu,flow_gpu,titer,xi1_gpu,rho,dbg)
+            # copy result to cpu
+            res[ids] = res_gpu.get()
+            flow[ids] = flow_gpu.get()
+        return res,flow

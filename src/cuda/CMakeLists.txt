@@ -17,7 +17,7 @@ include_directories(${NumPy_INCLUDE_DIRS})
 # Must tell CMake that SWIG interface files are CXX files
 set_source_files_properties(deform.i PROPERTIES CPLUSPLUS ON)
 swig_add_library(deform LANGUAGE python SOURCES deform.i deform.cu)
-swig_link_libraries(deform cudart cufft)
+swig_link_libraries(deform cudart cufft nppig nppial nppc npps nppidei)
 
 install(FILES "${CMAKE_CURRENT_BINARY_DIR}/deform.py" DESTINATION deformcg)
 install(TARGETS deform LIBRARY DESTINATION deformcg)
