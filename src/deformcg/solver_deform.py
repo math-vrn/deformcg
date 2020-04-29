@@ -60,22 +60,18 @@ class SolverDeform(deform):
 
     def registration_flow(self, psi, g, mmin,mmax, flow, pars, id):
         """Find optical flow for one projection"""
-        tmp1 = psi[id] 
-        tmp1 = ((tmp1-mmin) /
-                        (mmax-mmin)*255)
+        tmp1 = ((psi[id]-mmin[id]) /
+                        (mmax[id]-mmin[id])*255)
         tmp1[tmp1>255] = 255
         tmp1[tmp1<0] = 0
-        tmp2 = g[id]
-        tmp2 = ((tmp2-mmin) /
-                        (mmax-mmin)*255)
+        tmp2 = ((g[id]-mmin[id]) /
+                        (mmax[id]-mmin[id])*255)
         tmp2[tmp2>255] = 255
         tmp2[tmp2<0] = 0
-        flow0 = flow[id]
-        pars0 = pars.copy()
-        res = cv2.calcOpticalFlowFarneback(
-            tmp1, tmp2, flow0, *pars0)
+        flow[id] = cv2.calcOpticalFlowFarneback(
+            tmp1,tmp2, flow[id], *pars)
           
-        return res
+        return flow[id]
 
     def registration_flow_batch(self, psi, g, mmin,mmax, flow=None, pars=[0.5, 3, 20, 16, 5, 1.1, 4],nproc=16):
         """Find optical flow for all projections in parallel"""
@@ -126,7 +122,7 @@ class SolverDeform(deform):
 
 
     def apply_flow_gpu(self,f,flow):
-        g = cp.zeros([self.ptheta,self.nz,self.n],dtype='float32')
+       # g = cp.zeros([self.ptheta,self.nz,self.n],dtype='float32')
         h, w = flow.shape[1:3]
         flow = -flow.copy()
         flow[:,:, :, 0] += cp.arange(w)
@@ -134,7 +130,7 @@ class SolverDeform(deform):
 
         flowx = cp.asarray(flow[:,:,:,0],order='C')
         flowy = cp.asarray(flow[:,:,:,1],order='C')
-        
+        g = f.copy()# keep values that were not affected
         self.remap(g.data.ptr,f.data.ptr,flowx.data.ptr,flowy.data.ptr)
         return g
 
